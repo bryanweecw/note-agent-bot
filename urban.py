@@ -29,7 +29,9 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.document_loaders import PyPDFLoader
 from langchain.llms import OpenAIChat
+from dotenv import load_dotenv
 
+load_dotenv()
 loader = PyPDFLoader("urbanreading.pdf")
 pages = loader.load_and_split()
 

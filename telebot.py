@@ -10,6 +10,9 @@ from telegram.ext import (
 import logging
 from urbanagent import agentQuery
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # Enable logging
