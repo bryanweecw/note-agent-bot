@@ -12,6 +12,7 @@ from langchain.agents import (
     AgentOutputParser,
 )
 from langchain.prompts import StringPromptTemplate
+from langchain.prompts import PromptTemplate
 from langchain.llms import OpenAI
 from langchain.utilities import SerpAPIWrapper
 from langchain.chains import LLMChain
@@ -40,10 +41,8 @@ class SearchInput(BaseModel):
     query: str = Field(description="should be a search query")
 
 
-class QuoteInput(BaseModel):
-    question: str = Field(
-        description="should be a question answer pair, dilineated with |"
-    )
+class SummarizerInput(BaseModel):
+    question: str = Field(description="query to summarize from document")
 
 
 @tool("search", args_schema=SearchInput)
@@ -52,37 +51,54 @@ def search_api(query: str) -> str:
     Useful for checking what you know about a topic, and then searching for more information.
     Searches the vector store of the notes for results related to the query.
     The vector store of notes is your knowledge base.
-    Returns direct raw text from the notes, that you can work with.
+    Returns formatted search results.
     """
     # Get the documents from the vector store
     db = FAISS.load_local("faiss_index", OpenAIEmbeddings())
     docs = db.similarity_search(query, k=16)
     resources = ""
     for doc in docs:
-        resources += (
-            "From page "
-            + str(doc.metadata["page"])
-            + ":"
-            + doc.page_content[:800]
-            + "\n"
-        )
+        print(doc)
+        resources += f"From document: {str(doc.metadata['source'])} From page {str(doc.metadata['page'])}: {doc.page_content}\n"
+    response = search_formatter(resources)
 
-    return resources
+    return response
 
 
-@tool("quotes", args_schema=QuoteInput)
-def generate_quotes(input: str) -> str:
+def search_formatter(query: str) -> str:
+    llm = OpenAIChat(model_name="gpt-3.5-turbo-16k", temperature=0)
+    template = """
+    You are a helpful research assistant. Given the following resources ripped from a pdf, please format each of them as follows:
+
+    Document Name: Name of the document you are citing
+    Page Number: Page number of the document you are citing
+    Main Idea: The main idea of the document
+    Relevant Quotes: a bulleted-list of relevant quotes from the document that support the main idea
+
+    Here are the resources:
+    {resources}
     """
-    Useful for when you have a topic and chunks from a document for which you need quotes.
-    The input to this tool should be in this format,
-    "the input question you must answer | content of the document"
-    For example, "What is urban studies? | Urban studies is many things. Urban studies is the study of cities. Urban studies is a growing field"
-    would be the input if you want to generate quotes pertaining to the question of what urban studies is, given a document talking about urban studies.
+    customTemplate = PromptTemplate.from_template(template)
+    return llm(customTemplate.format(resources=query))
+
+
+@tool("summarizer", args_schema=SummarizerInput, return_direct=True)
+def summarizer(query: str) -> str:
     """
-    splitted_input = input.split("|")
-    question = splitted_input[0]
-    quotes = ("|").join(splitted_input[1:])
-    return quoter(question, quotes)
+    Useful for directly returning summaries of main ideas and quotes from the document.
+    Should be used in lieu of search when the user wants to directly return quotes and main ideas,
+    rather than have a higher-level conversation about the topic.
+    """
+    # Get the documents from the vector store
+    db = FAISS.load_local("faiss_index", OpenAIEmbeddings())
+    docs = db.similarity_search(query, k=16)
+    resources = ""
+    for doc in docs:
+        print(doc)
+        resources += f"From document: {str(doc.metadata['source'])} From page {str(doc.metadata['page'])}: {doc.page_content}\n"
+    response = search_formatter(resources)
+
+    return response
 
 
 def quoter(question: str, quotes: str) -> str:
@@ -94,16 +110,16 @@ def quoter(question: str, quotes: str) -> str:
         + "\n\n based on these chunks from a document:"
         + quotes
     )
-    return model.predict(prompt)
+    return model(prompt)
 
 
-tools = [search_api, generate_quotes]
+tools = [search_api, summarizer]
 
 tool_names = [tool.name for tool in tools]
 
 
 def get_tools(query):
-    return [search_api, generate_quotes]
+    return [search_api, summarizer]
 
 
 from typing import Callable
@@ -122,8 +138,8 @@ Action: the action to take, should be one of [{tool_names}], and only one that m
 Action Input: the input to the action, that matches the type expected by the action
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question, should be a long answer, think about the format that would best suit your final thought
+Thought: I now know the final answer (VERBATIM, SAVE YOUR FINAL ANSWER FOR THE END)
+Final Answer: A comprehensive final answer to the original input question
 
 {chat_history}
 
@@ -220,10 +236,10 @@ agent_executor = AgentExecutor.from_agent_and_tools(
     agent=agent, tools=tools, verbose=True, memory=memory, max_steps=10
 )
 
-agent_executor.run(
-    "summarize what you know about tropical modernism, and then format them in quotes from the document that respond to the question"
-)
-#
+# agent_executor.run(
+#     "Return in a quote format results about tropical modernism from the reading."
+# )
+# #
 
 
 def agentQuery(input: str):

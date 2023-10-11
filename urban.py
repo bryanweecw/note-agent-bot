@@ -63,6 +63,6 @@ def questionAnswer(input: str):
     prompt += resources + question
 
     llm = OpenAIChat()
-    answer = llm.predict(prompt)
+    answer = llm(prompt)
     print(answer)
     return answer
