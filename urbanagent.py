@@ -55,11 +55,10 @@ def search_api(query: str) -> str:
     """
     # Get the documents from the vector store
     db = FAISS.load_local("faiss_index", OpenAIEmbeddings())
-    docs = db.similarity_search(query, k=16)
+    docs = db.similarity_search(query, k=6)
     resources = ""
-    for doc in docs:
-        print(doc)
-        resources += f"From document: {str(doc.metadata['source'])} From page {str(doc.metadata['page'])}: {doc.page_content}\n"
+    for i, doc in enumerate(docs):
+        resources += f"\nResource {i} to be formatted: \n From document: {str(doc.metadata['source'])} From page {str(doc.metadata['page'])}: {doc.page_content}\n"
     response = search_formatter(resources)
 
     return response
@@ -68,14 +67,21 @@ def search_api(query: str) -> str:
 def search_formatter(query: str) -> str:
     llm = OpenAIChat(model_name="gpt-3.5-turbo-16k", temperature=0)
     template = """
-    You are a helpful research assistant. Given the following resources ripped from a pdf, please format each of them as follows:
+    You are a helpful research assistant who must do exactly as you're told, and be meticulous and complete in your responses, meaning you must consider ALL given information. Given the following resources ripped from a pdf, please take each individual distinct resource from the list, and return the following format:
 
+    Resource Number: the number of the resource you are formatting
+    Document Name: Name of the document you are citing
+    Page Number: Page number of the document you are citing
+    Main Idea: The main idea of the document
+    Relevant Quotes: a bulleted-list of relevant quotes from the document that support the main idea
+    ... (this Format of Response can repeat N times, where N is the number of resources)
+    Resource Number: the number of the resource you are formatting
     Document Name: Name of the document you are citing
     Page Number: Page number of the document you are citing
     Main Idea: The main idea of the document
     Relevant Quotes: a bulleted-list of relevant quotes from the document that support the main idea
 
-    Here are the resources:
+    Here is a list of the resources:
     {resources}
     """
     customTemplate = PromptTemplate.from_template(template)
@@ -85,16 +91,17 @@ def search_formatter(query: str) -> str:
 @tool("summarizer", args_schema=SummarizerInput, return_direct=True)
 def summarizer(query: str) -> str:
     """
-    Useful for directly returning summaries of main ideas and quotes from the document.
+    Useful when asked to provide explicit lists of information, or when asked to summarize a document.
+    Useful to return explicitly quoted lists of main ideas and quotes from the document.
+    This should be used when the user would likely want information straight from the document, rather than paraphrased or synthesized.
     Should be used in lieu of search when the user wants to directly return quotes and main ideas,
     rather than have a higher-level conversation about the topic.
     """
     # Get the documents from the vector store
     db = FAISS.load_local("faiss_index", OpenAIEmbeddings())
-    docs = db.similarity_search(query, k=16)
+    docs = db.similarity_search(query, k=6)
     resources = ""
     for doc in docs:
-        print(doc)
         resources += f"From document: {str(doc.metadata['source'])} From page {str(doc.metadata['page'])}: {doc.page_content}\n"
     response = search_formatter(resources)
 
@@ -138,8 +145,8 @@ Action: the action to take, should be one of [{tool_names}], and only one that m
 Action Input: the input to the action, that matches the type expected by the action
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer (VERBATIM, SAVE YOUR FINAL ANSWER FOR THE END)
-Final Answer: A comprehensive final answer to the original input question
+Thought: I now know the final answer
+Final Answer: A comprehensive final answer to the original input question. Provide citations, and quotes where necessary. This should be an academic publication quality answer.
 
 {chat_history}
 
@@ -175,7 +182,6 @@ class CustomPromptTemplate(StringPromptTemplate):
         )
         # Create a list of tool names for the tools provided
         kwargs["tool_names"] = ", ".join([tool.name for tool in tools])
-        print(self.template.format(**kwargs))
         return self.template.format(**kwargs)
 
 
@@ -187,7 +193,6 @@ prompt = CustomPromptTemplate(
     input_variables=["input", "chat_history", "intermediate_steps"],
 )
 
-print(prompt)
 
 memory = ConversationBufferMemory(memory_key="chat_history")
 
@@ -210,7 +215,6 @@ class CustomOutputParser(AgentOutputParser):
         action = match.group(1).strip()
         action_input = match.group(2)
         # Return the action and action input
-        print(action, action_input)
         return AgentAction(
             tool=action, tool_input=action_input.strip(" ").strip('"'), log=llm_output
         )
