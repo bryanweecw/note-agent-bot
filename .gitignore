@@ -1,3 +1,5 @@
 /.env
 /.virtual
 *.pyc
+*.pdf
+faiss_index_bak
